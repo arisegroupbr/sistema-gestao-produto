@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestão de Produtos</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    
+    <style>
+        /* Custom styles for better appearance */
+        .select-none {
+            user-select: none;
+        }
+        
+        .sticky {
+            position: sticky;
+        }
+        
+        .max-h-\[600px\] {
+            max-height: 600px;
+        }
+        
+        .max-h-\[80vh\] {
+            max-height: 80vh;
+        }
+        
+        .z-10 {
+            z-index: 10;
+        }
+        
+        .z-50 {
+            z-index: 50;
+        }
+        
+        /* Scrollbar styling */
+        .overflow-y-auto::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, createElement: e } = React;
+        const { createRoot } = ReactDOM;
+        
+        // Import Lucide icons
+        const {
+            Upload, Package, CheckCircle, AlertCircle, FileText, Plus, 
+            Trash2, Eye, X, Filter, History, RefreshCw, Search, Download
+        } = lucide;
+
+        const SistemaImportacaoProdutos = () => {
+            const [produtos, setProdutos] = useState([
+                { id: 1, nome: 'Notebook Dell Inspiron 15 3000 Intel Core i5 8GB RAM 256GB SSD', categoria: 'Eletrônicos', quantidade: 5, unidade: 'un', minimo: 2, ideal: 10, isNew: false, isUpdated: false },
+                { id: 2, nome: 'Caneta Esferográfica Bic Cristal Azul Caixa com 50 unidades', categoria: 'Escritório', quantidade: 50, unidade: 'un', minimo: 20, ideal: 100, isNew: false, isUpdated: false },
+                { id: 3, nome: 'Papel Sulfite A4 75g Pacote com 500 folhas Marca Report', categoria: 'Escritório', quantidade: 15, unidade: 'pct', minimo: 10, ideal: 30, isNew: false, isUpdated: false }
+            ]);
+            
+            const [showImport, setShowImport] = useState(false);
+            const [importType, setImportType] = useState('quantidade');
+            const [dragActive, setDragActive] = useState(false);
+            const [showProductModal, setShowProductModal] = useState(false);
+            const [selectedProduct, setSelectedProduct] = useState(null);
+            const [filtroStatus, setFiltroStatus] = useState('todos');
+            const [showImportHistory, setShowImportHistory] = useState(false);
+            const [ultimaImportacao, setUltimaImportacao] = useState(null);
+            const [paginaAtual, setPaginaAtual] = useState(1);
+            const [produtosPorPagina] = useState(30);
+            const [termoBusca, setTermoBusca] = useState('');
+            const [filtroCategoria, setFiltroCategoria] = useState('todas');
+            const [ordenacao, setOrdenacao] = useState({ campo: 'nome', direcao: 'asc' });
+            const fileInputRef = useRef(null);
+
+            // Função para normalizar nome do produto para comparação
+            const normalizarNome = (nome) => {
+                return nome.toLowerCase()
+                    .replace(/\s+/g, '') // Remove espaços
+                    .replace(/[^\w]/g, '') // Remove caracteres especiais
+                    .trim();
+            };
+
+            // Função para encontrar produto existente
+            const encontrarProdutoExistente = (nomeProduto, listaProdutos) => {
+                const nomeNormalizado = normalizarNome(nomeProduto);
+                
+                return listaProdutos.find(p => {
+                    const produtoNormalizado = normalizarNome(p.nome);
+                    
+                    // Busca exata primeiro
+                    if (produtoNormalizado === nomeNormalizado) {
+                        return true;
+                    }
+                    
+                    // Busca flexível - um contém o outro
+                    return produtoNormalizado.includes(nomeNormalizado) || 
+                           nomeNormalizado.includes(produtoNormalizado);
+                });
+            };
+
+            // Função para obter categorias únicas
+            const obterCategorias = () => {
+                const categorias = [...new Set(produtos.map(p => p.categoria))];
+                return categorias.sort();
+            };
+
+            // Função para ordenar produtos
+            const ordenarProdutos = (produtosList) => {
+                return [...produtosList].sort((a, b) => {
+                    let valorA = a[ordenacao.campo];
+                    let valorB = b[ordenacao.campo];
+                    
+                    // Tratamento especial para números
+                    if (ordenacao.campo === 'quantidade' || ordenacao.campo === 'minimo' || ordenacao.campo === 'ideal') {
+                        valorA = Number(valorA) || 0;
+                        valorB = Number(valorB) || 0;
+                    } else {
+                        // Para strings, converter para lowercase para ordenação case-insensitive
+                        valorA = String(valorA).toLowerCase();
+                        valorB = String(valorB).toLowerCase();
+                    }
+                    
+                    if (valorA < valorB) {
+                        return ordenacao.direcao === 'asc' ? -1 : 1;
+                    }
+                    if (valorA > valorB) {
+                        return ordenacao.direcao === 'asc' ? 1 : -1;
+                    }
+                    return 0;
+                });
+            };
+
+            // Função para alternar ordenação
+            const alternarOrdenacao = (campo) => {
+                setOrdenacao(prev => ({
+                    campo,
+                    direcao: prev.campo === campo && prev.direcao === 'asc' ? 'desc' : 'asc'
+                }));
+                setPaginaAtual(1); // Resetar para primeira página
+            };
+
+            // Função para obter ícone de ordenação
+            const obterIconeOrdenacao = (campo) => {
+                if (ordenacao.campo !== campo) {
+                    return '↕️'; // Ícone neutro
+                }
+                return ordenacao.direcao === 'asc' ? '↑' : '↓';
+            };
+
+            // Função para obter status detalhado do produto
+            const obterStatusDetalhado = (produto) => {
+                if (produto.quantidade <= produto.minimo) {
+                    return {
+                        categoria: 'critico',
+                        texto: 'Crítico',
+                        cor: 'text-red-500',
+                        debug: `${produto.quantidade} <= ${produto.minimo}`
+                    };
+                } else if (produto.quantidade < produto.ideal) {
+                    return {
+                        categoria: 'baixo',
+                        texto: 'Baixo',
+                        cor: 'text-yellow-500',
+                        debug: `${produto.minimo} < ${produto.quantidade} < ${produto.ideal}`
+                    };
+                } else {
+                    return {
+                        categoria: 'ideal',
+                        texto: 'OK',
+                        cor: 'text-green-500',
+                        debug: `${produto.quantidade} >= ${produto.ideal}`
+                    };
+                }
+            };
+
+            // Função para filtrar produtos baseado no status, busca e categoria
+            const filtrarProdutos = () => {
+                let produtosFiltrados = produtos;
+                
+                // Filtro por texto de busca
+                if (termoBusca.trim()) {
+                    const termoLower = termoBusca.toLowerCase();
+                    produtosFiltrados = produtosFiltrados.filter(p => 
+                        p.nome.toLowerCase().includes(termoLower) ||
+                        p.categoria.toLowerCase().includes(termoLower)
+                    );
+                }
+                
+                // Filtro por categoria
+                if (filtroCategoria !== 'todas') {
+                    produtosFiltrados = produtosFiltrados.filter(p => p.categoria === filtroCategoria);
+                }
+                
+                // Filtro por status
+                switch (filtroStatus) {
+                    case 'critico':
+                        produtosFiltrados = produtosFiltrados.filter(p => {
+                            const status = obterStatusDetalhado(p);
+                            return status.categoria === 'critico';
+                        });
+                        break;
+                    case 'baixo':
+                        produtosFiltrados = produtosFiltrados.filter(p => {
+                            const status = obterStatusDetalhado(p);
+                            return status.categoria === 'baixo';
+                        });
+                        break;
+                    case 'ideal':
+                        produtosFiltrados = produtosFiltrados.filter(p => {
+                            const status = obterStatusDetalhado(p);
+                            return status.categoria === 'ideal';
+                        });
+                        break;
+                    case 'novos':
+                        produtosFiltrados = produtosFiltrados.filter(p => p.isNew);
+                        break;
+                    case 'atualizados':
+                        produtosFiltrados = produtosFiltrados.filter(p => p.isUpdated);
+                        break;
+                }
+                
+                // Aplicar ordenação
+                return ordenarProdutos(produtosFiltrados);
+            };
+
+            const produtosFiltrados = filtrarProdutos();
+
+            // Lógica de paginação
+            const indexUltimoProduto = paginaAtual * produtosPorPagina;
+            const indexPrimeiroProduto = indexUltimoProduto - produtosPorPagina;
+            const produtosPaginados = produtosFiltrados.slice(indexPrimeiroProduto, indexUltimoProduto);
+            const totalPaginas = Math.ceil(produtosFiltrados.length / produtosPorPagina);
+
+            // Função para mudar página
+            const mudarPagina = (numeroPagina) => {
+                setPaginaAtual(numeroPagina);
+            };
+
+            // Gerar números das páginas para navegação
+            const gerarNumerosPaginas = () => {
+                const paginas = [];
+                const maxPaginasVisiveis = 5;
+                
+                if (totalPaginas <= maxPaginasVisiveis) {
+                    for (let i = 1; i <= totalPaginas; i++) {
+                        paginas.push(i);
+                    }
+                } else {
+                    if (paginaAtual <= 3) {
+                        for (let i = 1; i <= 5; i++) {
+                            paginas.push(i);
+                        }
+                    } else if (paginaAtual >= totalPaginas - 2) {
+                        for (let i = totalPaginas - 4; i <= totalPaginas; i++) {
+                            paginas.push(i);
+                        }
+                    } else {
+                        for (let i = paginaAtual - 2; i <= paginaAtual + 2; i++) {
+                            paginas.push(i);
+                        }
+                    }
+                }
+                
+                return paginas;
+            };
+
+            const limparFiltrosImportacao = () => {
+                setProdutos(produtos.map(p => ({ ...p, isNew: false, isUpdated: false })));
+                setUltimaImportacao(null);
+            };
+
+            // Função para exportar dados para CSV
+            const exportarParaCSV = () => {
+                const produtosParaExportar = produtosFiltrados.length > 0 ? produtosFiltrados : produtos;
+                
+                // Cabeçalho do CSV
+                const headers = ['Nome do Produto', 'Categoria', 'Quantidade', 'Unidade', 'Mínimo', 'Ideal', 'Status'];
+                
+                // Dados dos produtos
+                const csvData = produtosParaExportar.map(produto => {
+                    const status = obterStatusDetalhado(produto);
+                    return [
+                        `"${produto.nome}"`,
+                        `"${produto.categoria}"`,
+                        produto.quantidade,
+                        `"${produto.unidade}"`,
+                        produto.minimo,
+                        produto.ideal,
+                        `"${status.texto}"`
+                    ];
+                });
+                
+                // Combinar cabeçalho e dados
+                const csvContent = [headers, ...csvData]
+                    .map(row => row.join(','))
+                    .join('\n');
+                
+                // Criar e baixar arquivo
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `produtos_${new Date().toISOString().slice(0, 10)}.csv`;
+                link.click();
+                URL.revokeObjectURL(url);
+            };
+
+            // Função para limpar todos os filtros
+            const limparFiltros = () => {
+                setTermoBusca('');
+                setFiltroCategoria('todas');
+                setFiltroStatus('todos');
+                setPaginaAtual(1);
+            };
+
+            // Processar importação simples
+            const processarImportacao = async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split('\n');
+                    
+                    const novosItens = [];
+                    const produtosAtualizados = [...produtos];
+                    let produtosAtualizadosCount = 0;
+                    let produtosNovosCount = 0;
+                    
+                    for (let i = 0; i < lines.length; i++) {
+                        const linha = lines[i].trim();
+                        if (!linha) continue;
+                        
+                        let nomeProduto = '';
+                        let quantidade = 0;
+                        
+                        if (linha.includes(';;;')) {
+                            const partes = linha.split(';;;');
+                            if (partes.length >= 2) {
+                                nomeProduto = partes[0].replace(/"/g, '').trim();
+                                quantidade = parseFloat(partes[1].replace(/"/g, '').trim()) || 0;
+                            }
+                        } else if (linha.includes(',')) {
+                            const values = linha.split(',').map(v => v.replace(/"/g, '').trim());
+                            if (values.length >= 2 && values[0]) {
+                                nomeProduto = values[0];
+                                quantidade = parseFloat(values[1]) || 0;
+                            }
+                        }
+                        
+                        if (nomeProduto && nomeProduto.length > 2 && quantidade >= 0) {
+                            const produtoExistente = encontrarProdutoExistente(nomeProduto, produtosAtualizados);
+                            
+                            if (produtoExistente) {
+                                produtoExistente.quantidade = quantidade;
+                                produtoExistente.isUpdated = true;
+                                produtoExistente.isNew = false;
+                                produtosAtualizadosCount++;
+                            } else {
+                                novosItens.push({
+                                    id: Date.now() + i,
+                                    nome: nomeProduto,
+                                    categoria: 'Importado',
+                                    quantidade: quantidade,
+                                    unidade: 'un',
+                                    minimo: Math.max(1, Math.floor(quantidade * 0.2)),
+                                    ideal: Math.ceil(quantidade * 1.5),
+                                    isNew: true,
+                                    isUpdated: false
+                                });
+                                produtosNovosCount++;
+                            }
+                        }
+                    }
+                    
+                    if (produtosAtualizadosCount === 0 && produtosNovosCount === 0) {
+                        alert('Nenhum produto válido foi encontrado no arquivo.');
+                        return;
+                    }
+                    
+                    setProdutos([...produtosAtualizados, ...novosItens]);
+                    
+                    setUltimaImportacao({
+                        data: new Date().toLocaleString(),
+                        atualizados: produtosAtualizadosCount,
+                        novos: produtosNovosCount,
+                        produtosNovos: novosItens.map(p => ({ id: p.id, nome: p.nome })),
+                        produtosAtualizados: produtosAtualizados.filter(p => p.isUpdated).map(p => ({ id: p.id, nome: p.nome }))
+                    });
+                    
+                    setShowImport(false);
+                    event.target.value = '';
+                    
+                    alert(`Importação concluída!\n• ${produtosAtualizadosCount} produtos atualizados\n• ${produtosNovosCount} produtos adicionados`);
+                };
+                reader.readAsText(file);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setDragActive(false);
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const event = { target: { files: files } };
+                    processarImportacao(event);
+                }
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setDragActive(true);
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                setDragActive(false);
+            };
+
+            const adicionarProdutoManual = () => {
+                const novoProduto = {
+                    id: Date.now(),
+                    nome: 'Novo Produto',
+                    categoria: 'Geral',
+                    quantidade: 0,
+                    unidade: 'un',
+                    minimo: 1,
+                    ideal: 10,
+                    isNew: false,
+                    isUpdated: false
+                };
+                setProdutos([...produtos, novoProduto]);
+            };
+
+            const removerProduto = (id) => {
+                setProdutos(produtos.filter(p => p.id !== id));
+            };
+
+            const atualizarProduto = (id, campo, valor) => {
+                setProdutos(produtos.map(p => 
+                    p.id === id ? { ...p, [campo]: valor } : p
+                ));
+            };
+
+            const abrirModalProduto = (produto) => {
+                setSelectedProduct(produto);
+                setShowProductModal(true);
+            };
+
+            const fecharModalProduto = () => {
+                setSelectedProduct(null);
+                setShowProductModal(false);
+            };
+
+            // Função para truncar texto
+            const truncarTexto = (texto, limite = 30) => {
+                if (texto.length <= limite) return texto;
+                return texto.substring(0, limite) + '...';
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50 p-6">
+                    <div className="max-w-7xl mx-auto">
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <div className="flex items-center gap-3">
+                                    <Package className="w-8 h-8 text-blue-600" />
+                                    <h1 className="text-2xl font-bold text-gray-800">Sistema de Gestão de Produtos</h1>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={adicionarProdutoManual}
+                                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Adicionar Produto
+                                    </button>
+                                    <button
+                                        onClick={() => setShowImport(true)}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                                    >
+                                        <Upload className="w-4 h-4" />
+                                        Importar Arquivo
+                                    </button>
+                                    {ultimaImportacao && (
+                                        <button
+                                            onClick={() => setShowImportHistory(true)}
+                                            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                                        >
+                                            <History className="w-4 h-4" />
+                                            Histórico
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={exportarParaCSV}
+                                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        Exportar CSV
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Estatísticas */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                <div className="bg-blue-50 p-4 rounded-lg">
+                                    <div className="text-blue-600 text-sm font-medium">Total de Produtos</div>
+                                    <div className="text-2xl font-bold text-blue-700">{produtos.length}</div>
+                                </div>
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <div className="text-green-600 text-sm font-medium">Estoque Ideal</div>
+                                    <div className="text-2xl font-bold text-green-700">
+                                        {produtos.filter(p => p.quantidade >= p.ideal).length}
+                                    </div>
+                                </div>
+                                <div className="bg-yellow-50 p-4 rounded-lg">
+                                    <div className="text-yellow-600 text-sm font-medium">Estoque Baixo</div>
+                                    <div className="text-2xl font-bold text-yellow-700">
+                                        {produtos.filter(p => p.quantidade > p.minimo && p.quantidade < p.ideal).length}
+                                    </div>
+                                </div>
+                                <div className="bg-red-50 p-4 rounded-lg">
+                                    <div className="text-red-600 text-sm font-medium">Estoque Crítico</div>
+                                    <div className="text-2xl font-bold text-red-700">
+                                        {produtos.filter(p => p.quantidade <= p.minimo).length}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Busca e Filtros */}
+                            <div className="bg-gray-50 p-4 rounded-lg mb-6 space-y-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2 flex-1">
+                                        <Search className="w-4 h-4 text-gray-600" />
+                                        <input
+                                            type="text"
+                                            placeholder="Buscar produtos por nome ou categoria..."
+                                            value={termoBusca}
+                                            onChange={(e) => {
+                                                setTermoBusca(e.target.value);
+                                                setPaginaAtual(1);
+                                            }}
+                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                        {(termoBusca || filtroCategoria !== 'todas' || filtroStatus !== 'todos') && (
+                                            <button
+                                                onClick={limparFiltros}
+                                                className="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                                            >
+                                                Limpar
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                <div className="flex flex-wrap items-center gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <Filter className="w-4 h-4 text-gray-600" />
+                                        <label className="text-sm font-medium text-gray-700">Categoria:</label>
+                                    </div>
+                                    <select
+                                        value={filtroCategoria}
+                                        onChange={(e) => {
+                                            setFiltroCategoria(e.target.value);
+                                            setPaginaAtual(1);
+                                        }}
+                                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    >
+                                        <option value="todas">Todas as Categorias</option>
+                                        {obterCategorias().map(categoria => (
+                                            <option key={categoria} value={categoria}>
+                                                {categoria} ({produtos.filter(p => p.categoria === categoria).length})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-sm font-medium text-gray-700">Status:</label>
+                                    </div>
+                                    <select
+                                        value={filtroStatus}
+                                        onChange={(e) => {
+                                            setFiltroStatus(e.target.value);
+                                            setPaginaAtual(1);
+                                        }}
+                                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    >
+                                        <option value="todos">Todos os Status ({produtos.length})</option>
+                                        <option value="critico">Estoque Crítico ({produtos.filter(p => obterStatusDetalhado(p).categoria === 'critico').length})</option>
+                                        <option value="baixo">Estoque Baixo ({produtos.filter(p => obterStatusDetalhado(p).categoria === 'baixo').length})</option>
+                                        <option value="ideal">Estoque Ideal ({produtos.filter(p => obterStatusDetalhado(p).categoria === 'ideal').length})</option>
+                                        {ultimaImportacao && (
+                                            <>
+                                                <option value="novos">Produtos Novos ({produtos.filter(p => p.isNew).length})</option>
+                                                <option value="atualizados">Produtos Atualizados ({produtos.filter(p => p.isUpdated).length})</option>
+                                            </>
+                                        )}
+                                    </select>
+                                    
+                                    <div className="ml-auto text-sm text-gray-600">
+                                        Mostrando {indexPrimeiroProduto + 1} a {Math.min(indexUltimoProduto, produtosFiltrados.length)} de {produtosFiltrados.length} produtos
+                                        {produtosFiltrados.length !== produtos.length && ` (${produtos.length} total)`}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Tabela de Produtos */}
+                            <div className="bg-white rounded-lg shadow overflow-hidden">
+                                <div className="overflow-x-auto" style={{maxHeight: '600px'}}>
+                                    <table className="w-full border-collapse">
+                                        <thead className="bg-gray-100 sticky top-0" style={{zIndex: 10}}>
+                                            <tr>
+                                                <th 
+                                                    className="border border-gray-200 p-3 text-left bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                                                    onClick={() => alternarOrdenacao('nome')}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span>Produto</span>
+                                                        <span className="text-xs">{obterIconeOrdenacao('nome')}</span>
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    className="border border-gray-200 p-3 text-left bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                                                    onClick={() => alternarOrdenacao('categoria')}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span>Categoria</span>
+                                                        <span className="text-xs">{obterIconeOrdenacao('categoria')}</span>
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    className="border border-gray-200 p-3 text-center bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                                                    onClick={() => alternarOrdenacao('quantidade')}
+                                                >
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <span>Quantidade</span>
+                                                        <span className="text-xs">{obterIconeOrdenacao('quantidade')}</span>
+                                                    </div>
+                                                </th>
+                                                <th className="border border-gray-200 p-3 text-center bg-gray-100">Unidade</th>
+                                                <th 
+                                                    className="border border-gray-200 p-3 text-center bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                                                    onClick={() => alternarOrdenacao('minimo')}
+                                                >
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <span>Mínimo</span>
+                                                        <span className="text-xs">{obterIconeOrdenacao('minimo')}</span>
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    className="border border-gray-200 p-3 text-center bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+                                                    onClick={() => alternarOrdenacao('ideal')}
+                                                >
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <span>Ideal</span>
+                                                        <span className="text-xs">{obterIconeOrdenacao('ideal')}</span>
+                                                    </div>
+                                                </th>
+                                                <th className="border border-gray-200 p-3 text-center bg-gray-100">Status</th>
+                                                <th className="border border-gray-200 p-3 text-center bg-gray-100">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {produtosPaginados.map(produto => (
+                                                <tr key={produto.id} className={`hover:bg-gray-50 ${produto.isNew ? 'bg-green-50' : produto.isUpdated ? 'bg-blue-50' : ''}`}>
+                                                    <td className="border border-gray-200 p-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <span 
+                                                                className="flex-1 cursor-pointer hover:text-blue-600 transition-colors"
+                                                                title={produto.nome}
+                                                                onClick={() => abrirModalProduto(produto)}
+                                                            >
+                                                                {truncarTexto(produto.nome, 40)}
+                                                            </span>
+                                                            <div className="flex items-center gap-1">
+                                                                {produto.isNew && (
+                                                                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                                                                        NOVO
+                                                                    </span>
+                                                                )}
+                                                                {produto.isUpdated && (
+                                                                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                                                        ATUALIZADO
+                                                                    </span>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => abrirModalProduto(produto)}
+                                                                    className="text-blue-500 hover:text-blue-700 transition-colors"
+                                                                    title="Ver detalhes completos"
+                                                                >
+                                                                    <Eye className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="border border-gray-200 p-3">
+                                                        <input
+                                                            type="text"
+                                                            value={produto.categoria}
+                                                            onChange={(e) => atualizarProduto(produto.id, 'categoria', e.target.value)}
+                                                            className="w-full bg-transparent border-none focus:outline-none"
+                                                        />
+                                                    </td>
+                                                    <td className="border border-gray-200 p-3 text-center">
+                                                        <input
+                                                            type="number"
+                                                            value={produto.quantidade}
+                                                            onChange={(e) => atualizarProduto(produto.id, 'quantidade', parseFloat(e.target.value) || 0)}
+                                                            className="w-20 text-center bg-transparent border-none focus:outline-none"
+                                                        />
+                                                    </td>
+                                                    <td className="border border-gray-200 p-3 text-center">
+                                                        <input
+                                                            type="text"
+                                                            value={produto.unidade}
+                                                            onChange={(e) => atualizarProduto(produto.id, 'unidade', e.target.value)}
+                                                            className="w-16 text-center bg-transparent border-none focus:outline-none"
+                                                        />
+                                                    </td>
+                                                    <td className="border border-gray-200 p-3 text-center">
+                                                        <input
+                                                            type="number"
+                                                            value={produto.minimo}
+                                                            onChange={(e) => atualizarProduto(produto.id, 'minimo', parseFloat(e.target.value) || 0)}
+                                                            className="w-20 text-center bg-transparent border-none focus:outline-none"
+                                                        />
+                                                    </td>
+                                                    <td className="border border-gray-200 p-3 text-center">
+                                                        <input
+                                                            type="number"
+                                                            value={produto.ideal}
+                                                            onChange={(e) => atualizarProduto(produto.id, 'ideal', parseFloat(e.target.value) || 0)}
+                                                            className="w-20 text-center bg-transparent border-none focus:outline-none"
+                                                        />
+                                                    </td>
+                                                    <td className="border border-gray-200 p-3 text-center">
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            {(() => {
+                                                                const status = obterStatusDetalhado(produto);
+                                                                return (
+                                                                    <>
+                                                                        <div className={status.cor}>
+                                                                            {status.categoria === 'critico' && <AlertCircle className="w-4 h-4" />}
+                                                                            {status.categoria === 'baixo' && <AlertCircle className="w-4 h-4" />}
+                                                                            {status.categoria === 'ideal' && <CheckCircle className="w-4 h-4" />}
+                                                                        </div>
+                                                                        <div className="flex flex-col items-center">
+                                                                            <span className={`text-sm ${status.cor}`}>
+                                                                                {status.texto}
+                                                                            </span>
+                                                                            <span className="text-xs text-gray-400" title={status.debug}>
+                                                                                {status.debug}
+                                                                            </span>
+                                                                        </div>
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    </td>
+                                                    <td className="border border-gray-200 p-3 text-center">
+                                                        <button
+                                                            onClick={() => removerProduto(produto.id)}
+                                                            className="text-red-500 hover:text-red-700 transition-colors"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                {/* Controles de Paginação */}
+                                {totalPaginas > 1 && (
+                                    <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-sm text-gray-600">
+                                                Página {paginaAtual} de {totalPaginas}
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => mudarPagina(1)}
+                                                    disabled={paginaAtual === 1}
+                                                    className={`px-3 py-1 rounded-md text-sm ${
+                                                        paginaAtual === 1 
+                                                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                                                    }`}
+                                                >
+                                                    ««
+                                                </button>
+                                                
+                                                <button
+                                                    onClick={() => mudarPagina(paginaAtual - 1)}
+                                                    disabled={paginaAtual === 1}
+                                                    className={`px-3 py-1 rounded-md text-sm ${
+                                                        paginaAtual === 1 
+                                                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                                                    }`}
+                                                >
+                                                    «
+                                                </button>
+                                                
+                                                {gerarNumerosPaginas().map(numero => (
+                                                    <button
+                                                        key={numero}
+                                                        onClick={() => mudarPagina(numero)}
+                                                        className={`px-3 py-1 rounded-md text-sm ${
+                                                            paginaAtual === numero
+                                                                ? 'bg-blue-600 text-white'
+                                                                : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                                                        }`}
+                                                    >
+                                                        {numero}
+                                                    </button>
+                                                ))}
+                                                
+                                                <button
+                                                    onClick={() => mudarPagina(paginaAtual + 1)}
+                                                    disabled={paginaAtual === totalPaginas}
+                                                    className={`px-3 py-1 rounded-md text-sm ${
+                                                        paginaAtual === totalPaginas 
+                                                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                                                    }`}
+                                                >
+                                                    »
+                                                </button>
+                                                
+                                                <button
+                                                    onClick={() => mudarPagina(totalPaginas)}
+                                                    disabled={paginaAtual === totalPaginas}
+                                                    className={`px-3 py-1 rounded-md text-sm ${
+                                                        paginaAtual === totalPaginas 
+                                                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                                                    }`}
+                                                >
+                                                    »»
+                                                </button>
+                                            </div>
+                                            
+                                            <div className="text-sm text-gray-600">
+                                                {produtosPaginados.length} de {produtosFiltrados.length} produtos
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Modal de Histórico */}
+                        {showImportHistory && ultimaImportacao && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style={{zIndex: 50}}>
+                                <div className="bg-white rounded-lg p-6 max-w-2xl w-full m-4 overflow-y-auto" style={{maxHeight: '80vh'}}>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h2 className="text-xl font-bold">Histórico da Última Importação</h2>
+                                        <button
+                                            onClick={() => setShowImportHistory(false)}
+                                            className="text-gray-500 hover:text-gray-700"
+                                        >
+                                            <X className="w-6 h-6" />
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="space-y-4">
+                                        <div className="bg-gray-50 p-4 rounded-lg">
+                                            <p className="text-sm text-gray-600">Data da Importação:</p>
+                                            <p className="font-medium">{ultimaImportacao.data}</p>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="bg-blue-50 p-4 rounded-lg">
+                                                <p className="text-sm text-blue-600">Produtos Atualizados</p>
+                                                <p className="text-2xl font-bold text-blue-700">{ultimaImportacao.atualizados}</p>
+                                            </div>
+                                            <div className="bg-green-50 p-4 rounded-lg">
+                                                <p className="text-sm text-green-600">Produtos Novos</p>
+                                                <p className="text-2xl font-bold text-green-700">{ultimaImportacao.novos}</p>
+                                            </div>
+                                        </div>
+                                        
+                                        {ultimaImportacao.produtosNovos.length > 0 && (
+                                            <div>
+                                                <h3 className="font-medium text-gray-900 mb-2">Produtos Adicionados:</h3>
+                                                <div className="bg-green-50 p-3 rounded-lg overflow-y-auto" style={{maxHeight: '128px'}}>
+                                                    <ul className="text-sm space-y-1">
+                                                        {ultimaImportacao.produtosNovos.map(p => (
+                                                            <li key={p.id} className="text-green-800">• {p.nome}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        {ultimaImportacao.produtosAtualizados.length > 0 && (
+                                            <div>
+                                                <h3 className="font-medium text-gray-900 mb-2">Produtos Atualizados:</h3>
+                                                <div className="bg-blue-50 p-3 rounded-lg overflow-y-auto" style={{maxHeight: '128px'}}>
+                                                    <ul className="text-sm space-y-1">
+                                                        {ultimaImportacao.produtosAtualizados.map(p => (
+                                                            <li key={p.id} className="text-blue-800">• {p.nome}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        <div className="flex justify-between">
+                                            <button
+                                                onClick={limparFiltrosImportacao}
+                                                className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                                            >
+                                                <RefreshCw className="w-4 h-4" />
+                                                Limpar Marcações
+                                            </button>
+                                            <button
+                                                onClick={() => setShowImportHistory(false)}
+                                                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                                            >
+                                                Fechar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Modal de Detalhes do Produto */}
+                        {showProductModal && selectedProduct && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style={{zIndex: 50}}>
+                                <div className="bg-white rounded-lg p-6 max-w-2xl w-full m-4">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h2 className="text-xl font-bold">Detalhes do Produto</h2>
+                                        <button
+                                            onClick={fecharModalProduto}
+                                            className="text-gray-500 hover:text-gray-700"
+                                        >
+                                            <X className="w-6 h-6" />
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Nome Completo do Produto
+                                            </label>
+                                            <textarea
+                                                value={selectedProduct.nome}
+                                                onChange={(e) => {
+                                                    const produtoAtualizado = { ...selectedProduct, nome: e.target.value };
+                                                    setSelectedProduct(produtoAtualizado);
+                                                    atualizarProduto(selectedProduct.id, 'nome', e.target.value);
+                                                }}
+                                                className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                rows="3"
+                                                placeholder="Digite o nome completo do produto..."
+                                            />
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Categoria
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={selectedProduct.categoria}
+                                                    onChange={(e) => {
+                                                        const produtoAtualizado = { ...selectedProduct, categoria: e.target.value };
+                                                        setSelectedProduct(produtoAtualizado);
+                                                        atualizarProduto(selectedProduct.id, 'categoria', e.target.value);
+                                                    }}
+                                                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                            </div>
+                                            
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Unidade
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={selectedProduct.unidade}
+                                                    onChange={(e) => {
+                                                        const produtoAtualizado = { ...selectedProduct, unidade: e.target.value };
+                                                        setSelectedProduct(produtoAtualizado);
+                                                        atualizarProduto(selectedProduct.id, 'unidade', e.target.value);
+                                                    }}
+                                                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-3 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Quantidade Atual
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={selectedProduct.quantidade}
+                                                    onChange={(e) => {
+                                                        const valor = parseFloat(e.target.value) || 0;
+                                                        const produtoAtualizado = { ...selectedProduct, quantidade: valor };
+                                                        setSelectedProduct(produtoAtualizado);
+                                                        atualizarProduto(selectedProduct.id, 'quantidade', valor);
+                                                    }}
+                                                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                            </div>
+                                            
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Estoque Mínimo
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={selectedProduct.minimo}
+                                                    onChange={(e) => {
+                                                        const valor = parseFloat(e.target.value) || 0;
+                                                        const produtoAtualizado = { ...selectedProduct, minimo: valor };
+                                                        setSelectedProduct(produtoAtualizado);
+                                                        atualizarProduto(selectedProduct.id, 'minimo', valor);
+                                                    }}
+                                                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                            </div>
+                                            
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Estoque Ideal
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={selectedProduct.ideal}
+                                                    onChange={(e) => {
+                                                        const valor = parseFloat(e.target.value) || 0;
+                                                        const produtoAtualizado = { ...selectedProduct, ideal: valor };
+                                                        setSelectedProduct(produtoAtualizado);
+                                                        atualizarProduto(selectedProduct.id, 'ideal', valor);
+                                                    }}
+                                                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex justify-end">
+                                            <button
+                                                onClick={fecharModalProduto}
+                                                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                                            >
+                                                Fechar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Modal de Importação */}
+                        {showImport && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style={{zIndex: 50}}>
+                                <div className="bg-white rounded-lg p-6 max-w-md w-full m-4">
+                                    <h2 className="text-xl font-bold mb-4">Importar Produtos</h2>
+                                    
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Tipo de Importação
+                                        </label>
+                                        <select
+                                            value={importType}
+                                            onChange={(e) => setImportType(e.target.value)}
+                                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="quantidade">Apenas Quantidades</option>
+                                            <option value="completo">Dados Completos</option>
+                                        </select>
+                                    </div>
+
+                                    <div
+                                        className={`border-2 border-dashed rounded-lg p-6 text-center mb-4 transition-colors ${
+                                            dragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+                                        }`}
+                                        onDrop={handleDrop}
+                                        onDragOver={handleDragOver}
+                                        onDragLeave={handleDragLeave}
+                                    >
+                                        <FileText className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                                        <p className="text-gray-600 mb-2">
+                                            Arraste e solte um arquivo ou clique para selecionar
+                                        </p>
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept=".csv,.txt"
+                                            onChange={processarImportacao}
+                                            className="hidden"
+                                            id="fileInput"
+                                        />
+                                        <label
+                                            htmlFor="fileInput"
+                                            className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors cursor-pointer"
+                                        >
+                                            Selecionar Arquivo
+                                        </label>
+                                    </div>
+
+                                    <div className="text-sm text-gray-600 mb-4">
+                                        <p><strong>Formatos suportados:</strong></p>
+                                        <ul className="list-disc list-inside mt-1 space-y-1">
+                                            <li><strong>CSV/TXT:</strong> produto;;;quantidade</li>
+                                            <li><strong>CSV tradicional:</strong> nome,quantidade</li>
+                                        </ul>
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            <strong>Exemplo:</strong> ABRACADEIRA 100MM;;;15
+                                        </p>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => setShowImport(false)}
+                                            className="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Renderizar o componente
+        const root = createRoot(document.getElementById('root'));
+        root.render(<SistemaImportacaoProdutos />);
+    </script>
+</body>
+</html>
